@@ -1,5 +1,5 @@
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -8,15 +8,15 @@ use wholesym::VerboseSymbolManagerObserver;
 
 use crate::json_loader::load_firefox_profile;
 
-mod types;
 mod json_loader;
+mod types;
 
 // Rough strategy for conversion:
 // -- 1 gunzip profile.json.gz --
 //
 // things we need:
 // - libs/ -> Lib[] binary paths and dylib, will need to load these as symbol maps
-//      
+//
 //
 //
 //
@@ -62,30 +62,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("{:?}", profile.libs);
 
-    if let Some(address_info) = symbol_map
+    let Some(address_info) = symbol_map
         .lookup(wholesym::LookupAddress::Relative(cli.addr))
         .await
-    {
-        if let Some(frames) = address_info.frames {
-            for frame in frames {
-                if let Some(path) = frame.file_path {
-                    if let Some(line_number) = frame.line_number {
-                        if let Some(function) = frame.function {
-                            println!("{}:{function}:{}", path.display_path(), line_number);
-                        } else {
-                            println!("{}:{}", path.display_path(), line_number);
-                        }
-                    } else {
-                        println!("{}", path.display_path());
-                    }
+    else {
+        eprintln!("failed to find symbol for {:#x}", cli.addr);
+        return Ok(());
+    };
+
+    if let Some(frames) = address_info.frames {
+        for frame in frames {
+            let Some(path) = frame.file_path else {
+                continue;
+            };
+
+            match (frame.line_number, frame.function) {
+                (Some(line_number), Some(function)) => {
+                    println!("{}:{function}:{}", path.display_path(), line_number);
+                },
+                (Some(line_number), None) => {
+                    println!("{}:{}", path.display_path(), line_number);
+                },
+                _ => {
+                    println!("{}", path.display_path());
                 }
             }
         }
-    } else {
-        eprintln!("failed to find symbol for {:#x}", cli.addr);
     }
-
-    println!("Hello, world!");
 
     Ok(())
 }
