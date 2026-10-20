@@ -6,6 +6,22 @@ use std::{
 use clap::{Parser, error::Result};
 use wholesym::VerboseSymbolManagerObserver;
 
+use crate::json_loader::load_firefox_profile;
+
+mod types;
+mod json_loader;
+
+// Rough strategy for conversion:
+// -- 1 gunzip profile.json.gz --
+//
+// things we need:
+// - libs/ -> Lib[] binary paths and dylib, will need to load these as symbol maps
+//      
+//
+//
+//
+//
+
 fn parse_hex(s: &str) -> Result<u32, String> {
     let src = s.strip_prefix("0x").unwrap_or(s);
 
@@ -14,6 +30,8 @@ fn parse_hex(s: &str) -> Result<u32, String> {
 
 #[derive(Parser)]
 struct Args {
+    profile: PathBuf,
+
     exe: PathBuf,
 
     #[clap(short, long, value_parser=parse_hex)]
@@ -39,6 +57,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     print!("{:#x}: ", cli.addr);
+
+    let profile = load_firefox_profile(&cli.profile)?;
+
+    println!("{:?}", profile.libs);
 
     if let Some(address_info) = symbol_map
         .lookup(wholesym::LookupAddress::Relative(cli.addr))
