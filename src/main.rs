@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::{Parser, error::Result};
-use wholesym::VerboseSymbolManagerObserver;
+use wholesym::{SymbolMap, VerboseSymbolManagerObserver};
 
 use crate::json_loader::load_firefox_profile;
 
@@ -16,10 +16,6 @@ mod types;
 //
 // things we need:
 // - libs/ -> Lib[] binary paths and dylib, will need to load these as symbol maps
-//
-//
-//
-//
 //
 
 fn parse_hex(s: &str) -> Result<u32, String> {
@@ -60,14 +56,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let profile = load_firefox_profile(&cli.profile)?;
 
-    println!("{:?}", profile.libs);
+    for address in &profile.threads[0].frame_table.address {
+        print_addr(*address, &symbol_map).await;
+    }
 
+    Ok(())
+}
+
+async fn print_addr(addr: u32, symbol_map: &SymbolMap) {
     let Some(address_info) = symbol_map
-        .lookup(wholesym::LookupAddress::Relative(cli.addr))
+        .lookup(wholesym::LookupAddress::Relative(addr))
         .await
     else {
-        eprintln!("failed to find symbol for {:#x}", cli.addr);
-        return Ok(());
+        eprintln!("failed to find symbol for {:#x}", addr);
+        return;
     };
 
     if let Some(frames) = address_info.frames {
@@ -89,6 +91,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-
-    Ok(())
 }
