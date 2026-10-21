@@ -11,7 +11,7 @@ This was entirely because
 
 Quick preview of how it looks in Neovim when everything is working:
 
-[demo image](./demo.jpeg)
+![demo image](./demo.jpeg)
 
 Unfortunately this was slightly easier said than done. The firefox profiler schema only contains a series of tables listing the samples/libraries/functions, *not* the symbol mappings required to trace it back to any source code. Under the hood the Firefox Profiler handles this via requesting a Samply server serving any symbol map requests. This is less than ideal, as the flamegraph schema documented [here](https://github.com/brendangregg/FlameGraph) requires all symbols to be computed beforehand.
 
