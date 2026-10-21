@@ -58,6 +58,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for thread in &profile.threads {
         let stack_counts = get_stack_counts(thread);
 
+        // We do end up getting a bunch of duplicate lines, so we'll keep track and sum counts
+        let mut stacktrace: HashMap<String, u32> = HashMap::new();
+
         for (i, stack) in thread.stack_table.frame.iter().enumerate() {
             // TODO: will find a significantly more optimized way of traversing this later,
             // but for now:
@@ -104,9 +107,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             callstack_strs.reverse();
 
-            println!("{} {}", callstack_strs.join(";"), stack_counts[i]);
+            let func_key = callstack_strs.join(";");
+            let entry = stacktrace.entry(func_key);
+
+            let count: &mut u32 = entry.or_insert(0);
+
+            *count += stack_count as u32;
+            //
+            // println!("{} {}", callstack_strs.join(";"), stack_counts[i]);
+        }
+
+        let mut lines: Vec<_> = stacktrace.into_iter().collect();
+
+        for (stack, count) in lines {
+            println!("{stack} {count}");
+
         }
     }
+
 
     Ok(())
 }
