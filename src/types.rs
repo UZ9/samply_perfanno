@@ -67,7 +67,7 @@ pub struct Thread {
 }
 
 #[derive(Deserialize, Debug)]
-struct StackTable {
+pub struct StackTable {
     pub prefix: Vec<Option<usize>>,
     pub frame: Vec<usize>,
 }

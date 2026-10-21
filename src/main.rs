@@ -6,7 +6,7 @@ use std::{
 use clap::{Parser, error::Result};
 use wholesym::{SymbolMap, VerboseSymbolManagerObserver};
 
-use crate::json_loader::load_firefox_profile;
+use crate::{json_loader::load_firefox_profile, types::{Profile, Thread}};
 
 mod json_loader;
 mod types;
@@ -58,6 +58,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let profile = load_firefox_profile(&cli.profile)?;
 
     for thread in &profile.threads {
+        let stack_counts = get_stack_counts(thread);
+
+        println!("stack_counts: {:?}", stack_counts);
+
         for (i, address) in thread.frame_table.address.iter().enumerate() {
             // For now we need to filter this to just be our executable. Given a frame at [i] within the frame
             // table, we can reference this via func idx -> func table -> resource table
@@ -84,6 +88,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn get_stack_counts(thread: &Thread) -> Vec<u32> {
+    // We need to count the number of samples hitting a particular stack (i.e. find where processing
+    // time is being spent). We already know the number of stacks via the stack_table, so we'll just 
+    // track the counts via a Vec of size stack_table.frame.len()
+    let mut counters: Vec<u32> = vec![0; thread.stack_table.frame.len()];
+
+    let sample_table = &thread.samples;
+
+    for sample in &sample_table.stack {
+        // Sample can be None if we aren't running anything
+        if let Some(sample) = sample {
+            counters[*sample] += 1;
+        }
+    }
+
+    counters
+}
+
 async fn print_addr(addr: i64, symbol_map: &SymbolMap) {
     if addr == -1 {
         println!("{addr}:-1");
@@ -100,6 +122,7 @@ async fn print_addr(addr: i64, symbol_map: &SymbolMap) {
     if let Some(frames) = address_info.frames {
         for frame in frames {
             let Some(path) = frame.file_path else {
+                eprintln!("Failed to find frame file_path for addr {addr}, do we have debug symbols enabled?");
                 continue;
             };
 
@@ -115,5 +138,7 @@ async fn print_addr(addr: i64, symbol_map: &SymbolMap) {
                 }
             }
         }
+    } else {
+        eprintln!("Failed to fetch frames for addr {addr}, do we have debug symbols enabled?");
     }
 }
