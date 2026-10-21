@@ -15,19 +15,6 @@ use crate::{
 mod json_loader;
 mod types;
 
-// Rough strategy for conversion:
-// -- 1 gunzip profile.json.gz --
-//
-// things we need:
-// - libs/ -> Lib[] binary paths and dylib, will need to load these as symbol maps
-//
-
-fn parse_hex(s: &str) -> Result<u32, String> {
-    let src = s.strip_prefix("0x").unwrap_or(s);
-
-    u32::from_str_radix(src, 16).map_err(|e| format!("{} bad hex", e))
-}
-
 #[derive(Parser)]
 struct Args {
     profile: PathBuf,
@@ -141,8 +128,8 @@ async fn frame_name_line(
     let func = thread.frame_table.func[idx];
     let resource = thread.func_table.resource[func];
 
-    if addr == -1 {
-        return vec!["addr=-1".to_string()];
+    if resource == -1 || addr == -1 {
+        return vec![format!("unknown+{addr:#x}")];
     }
 
     let Some(lib_idx) = thread.resource_table.lib[resource as usize] else {
@@ -161,7 +148,6 @@ async fn frame_name_line(
             .and_then(|id| wholesym::debugid::DebugId::from_breakpad(id).ok())
             .map(MultiArchDisambiguator::DebugId);
 
-        // let map = manager.load_symbol_map_for_binary_at_path(Path::new(path), None).await.ok();
         let mut res = manager.load_symbol_map_for_binary_at_path(&path, multiarch_disambiguator).await;
 
         if res.is_err() {
