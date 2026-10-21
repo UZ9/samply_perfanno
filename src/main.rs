@@ -26,19 +26,21 @@ struct Args {
     samply_path: PathBuf,
 }
 
-#[tokio::main]
+// Not doing any multithreaded shenanigans, so just lock it to one thread
+// ref: https://docs.rs/tokio/latest/tokio/attr.main.html#current-thread
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Args::parse();
 
-    let config = wholesym::SymbolManagerConfig::new()
-        .use_spotlight(true)
-        .respect_nt_symbol_path(true);
+    let config = wholesym::SymbolManagerConfig::new();
 
     let symbol_manager = wholesym::SymbolManager::with_config(config);
 
     let root = &cli.samply_path;
 
     let mut symbol_maps: HashMap<usize, Option<SymbolMap>> = HashMap::new();
+
+    let mut frame_cache: HashMap<(usize, i64), Vec<String>> = HashMap::new();
 
     let profile = load_firefox_profile(&cli.profile)?;
 
@@ -81,6 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 callstack_strs.extend(
                     frame_name_line(
                         &mut symbol_maps,
+                        &mut frame_cache,
                         &symbol_manager,
                         &profile,
                         thread,
@@ -116,6 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn frame_name_line(
     maps: &mut HashMap<usize, Option<SymbolMap>>,
+    frame_cache: &mut HashMap<(usize, i64), Vec<String>>,
     manager: &SymbolManager,
     profile: &Profile,
     thread: &Thread,
@@ -135,6 +139,10 @@ async fn frame_name_line(
     let Some(lib_idx) = thread.resource_table.lib[resource as usize] else {
         return vec!["lib_idx None".to_string()];
     };
+
+    if let Some(cached) = frame_cache.get(&(lib_idx, addr)) {
+        return cached.clone();
+    }
 
     if !maps.contains_key(&lib_idx) {
         let lib = &profile.libs[lib_idx];
@@ -200,6 +208,8 @@ async fn frame_name_line(
     if ret.len() == 0 {
         ret.push(info.symbol.name.clone());
     }
+
+    frame_cache.insert((lib_idx, addr), ret.clone());
 
     ret
 }
