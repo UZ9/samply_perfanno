@@ -29,13 +29,7 @@ samply record ./some-binary
 Then run the converter tool:
 
 ```
-cargo run <path/to/samply/profile.json.gz> <path/to/directory/samply/ran/in>
-```
-
-For now, this dumps the result into stdout (until I decide to actually add output flags). You can easily pipe this into the `perf.log` file `perfanno` expects:
-
-```
-cargo run <path/to/samply/profile.json.gz> <path/to/primary/binary> <path/to/directory/samply/ran/in> > perf.log
+cargo run <path/to/samply/profile.json.gz> <path/to/directory/samply/ran/in> -o perf.log
 ```
 
 With a `perf.log` within the root project directory of your chosen project, you can now load your perf annotations in Neovim via `perfanno`:

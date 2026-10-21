@@ -1,5 +1,8 @@
 use std::{
     collections::{HashMap, hash_map::Entry},
+    fs::File,
+    io::BufWriter,
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -19,11 +22,12 @@ mod types;
 struct Args {
     profile: PathBuf,
 
-    exe: PathBuf,
-
     // TODO: have to include path of where samply was ran because of relative paths, might be an
     // easier way of autodetecting this
     samply_path: PathBuf,
+
+    #[arg(short)]
+    output: PathBuf,
 }
 
 // Not doing any multithreaded shenanigans, so just lock it to one thread
@@ -43,6 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut frame_cache: HashMap<(usize, i64), Vec<String>> = HashMap::new();
 
     let profile = load_firefox_profile(&cli.profile)?;
+
+    let mut out = BufWriter::new(File::create(&cli.output)?);
 
     for thread in &profile.threads {
         let stack_counts = get_stack_counts(thread);
@@ -107,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let lines: Vec<_> = stacktrace.into_iter().collect();
 
         for (stack, count) in lines {
-            println!("{stack} {count}");
+            writeln!(out, "{stack} {count}")?;
         }
     }
 
