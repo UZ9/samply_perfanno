@@ -44,6 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut symbol_manager = wholesym::SymbolManager::with_config(config);
 
+    // TODO: need to load for all libs not just main executable
     let path: PathBuf = cli.exe;
 
     symbol_manager.set_observer(Some(Arc::new(VerboseSymbolManagerObserver::new())));
@@ -56,16 +57,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let profile = load_firefox_profile(&cli.profile)?;
 
-    for address in &profile.threads[0].frame_table.address {
-        print_addr(*address, &symbol_map).await;
+    for thread in &profile.threads {
+        for (i, address) in thread.frame_table.address.iter().enumerate() {
+            // For now we need to filter this to just be our executable. Given a frame at [i] within the frame
+            // table, we can reference this via func idx -> func table -> resource table
+
+            let func_idx = thread.frame_table.func[i];
+            let res_idx = thread.func_table.resource[func_idx];
+
+            if res_idx == -1 {
+                continue;
+            }
+
+            if let Some(lib_idx) = thread.resource_table.lib[res_idx as usize].as_ref() {
+                let lib = &profile.libs[*lib_idx];
+
+                if lib.path == "./target/release/one-billion-rows" {
+                    // println!("lib addr: {} for {address}", lib.path);
+                    print_addr(*address, &symbol_map).await;
+                }
+            }
+            //
+        }
     }
 
     Ok(())
 }
 
-async fn print_addr(addr: u32, symbol_map: &SymbolMap) {
+async fn print_addr(addr: i64, symbol_map: &SymbolMap) {
+    if addr == -1 {
+        println!("{addr}:-1");
+    }
+
     let Some(address_info) = symbol_map
-        .lookup(wholesym::LookupAddress::Relative(addr))
+        .lookup(wholesym::LookupAddress::Relative(addr as u32))
         .await
     else {
         eprintln!("failed to find symbol for {:#x}", addr);

@@ -75,8 +75,9 @@ struct StackTable {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct FrameTable {
-    /// The address of a given frame
-    pub address: Vec<u32>,
+    // TODO: -1 in profile schema, but what cases would frame not have an address?
+    /// The address of a given frame, -1 if no address
+    pub address: Vec<i64>,
 
     /// The index into the func table describing the name and resource of a function
     pub func: Vec<usize>,
@@ -88,7 +89,6 @@ pub struct FrameTable {
 
 #[derive(Deserialize, Debug)]
 pub struct FuncTable {
-    // TODO: index into somewhere, but I don't know where...
     /// Name of a function.
     pub name: Vec<usize>,
     pub resource: Vec<i64>,
