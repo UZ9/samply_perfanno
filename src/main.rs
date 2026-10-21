@@ -1,12 +1,11 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use clap::Parser;
-use wholesym::{MultiArchDisambiguator, SymbolManager, SymbolMap, VerboseSymbolManagerObserver};
+use wholesym::{MultiArchDisambiguator, SymbolManager, SymbolMap};
 
 use crate::{
     json_loader::load_firefox_profile,
@@ -35,9 +34,6 @@ struct Args {
 
     exe: PathBuf,
 
-    #[clap(short, long, value_parser=parse_hex)]
-    addr: u32,
-
     // TODO: have to include path of where samply was ran because of relative paths, might be an
     // easier way of autodetecting this
     samply_path: PathBuf,
@@ -56,8 +52,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = &cli.samply_path;
 
     let mut symbol_maps: HashMap<usize, Option<SymbolMap>> = HashMap::new();
-
-    print!("{:#x}: ", cli.addr);
 
     let profile = load_firefox_profile(&cli.profile)?;
 
@@ -101,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         &profile,
                         thread,
                         frame_idx,
-                        root
+                        root,
                     )
                     .await,
                 );
@@ -123,7 +117,7 @@ async fn frame_name_line(
     profile: &Profile,
     thread: &Thread,
     idx: usize,
-    root: &Path
+    root: &Path,
 ) -> Vec<String> {
     let mut ret = Vec::new();
 
@@ -135,11 +129,6 @@ async fn frame_name_line(
         return vec!["addr=-1".to_string()];
     }
 
-    // if addr == -1 {
-    //     println!("{addr}:-1");
-    // }
-    //
-
     let Some(lib_idx) = thread.resource_table.lib[resource as usize] else {
         return vec!["lib_idx None".to_string()];
     };
@@ -150,7 +139,11 @@ async fn frame_name_line(
 
         // Hurrah macOS! Need to do additional disambiguation given breakpads otherwise we fail on
         // all map indexes, noted in load_symbol_map_for_binary_at_path docs
-        let multiarch_disambiguator = lib.breakpad_id.as_deref().and_then(|id| wholesym::debugid::DebugId::from_breakpad(id).ok()).map(MultiArchDisambiguator::DebugId);
+        let multiarch_disambiguator = lib
+            .breakpad_id
+            .as_deref()
+            .and_then(|id| wholesym::debugid::DebugId::from_breakpad(id).ok())
+            .map(MultiArchDisambiguator::DebugId);
 
         // let map = manager.load_symbol_map_for_binary_at_path(Path::new(path), None).await.ok();
         let map = match manager
@@ -191,21 +184,6 @@ async fn frame_name_line(
                 }
                 _ => ret.push(sample_function_name),
             };
-
-            // let sample_display = match frame.function {
-            //     Some(function) => path.display_path() + ":" + &function,
-            //     None => path.display_path()
-            // };
-
-            // let Some(path) = frame.file_path else {
-            //     eprintln!(
-            //         "Failed to find frame file_path for addr {addr}, do we have debug symbols enabled?"
-            //     );
-            //     continue;
-            // };
-            //
-
-            // return Ok((path.display_path(), frame.line_number));
         }
     }
 
@@ -232,43 +210,4 @@ fn get_stack_counts(thread: &Thread) -> Vec<u32> {
     }
 
     counters
-}
-
-async fn print_addr(addr: i64, symbol_map: &SymbolMap) {
-    if addr == -1 {
-        println!("{addr}:-1");
-    }
-
-    let Some(address_info) = symbol_map
-        .lookup(wholesym::LookupAddress::Relative(addr as u32))
-        .await
-    else {
-        eprintln!("failed to find symbol for {:#x}", addr);
-        return;
-    };
-
-    if let Some(frames) = address_info.frames {
-        for frame in frames {
-            let Some(path) = frame.file_path else {
-                eprintln!(
-                    "Failed to find frame file_path for addr {addr}, do we have debug symbols enabled?"
-                );
-                continue;
-            };
-
-            match (frame.line_number, frame.function) {
-                (Some(line_number), Some(function)) => {
-                    println!("{}:{function}:{}", path.display_path(), line_number);
-                }
-                (Some(line_number), None) => {
-                    println!("{}:{}", path.display_path(), line_number);
-                }
-                _ => {
-                    println!("{}", path.display_path());
-                }
-            }
-        }
-    } else {
-        eprintln!("Failed to fetch frames for addr {addr}, do we have debug symbols enabled?");
-    }
 }
