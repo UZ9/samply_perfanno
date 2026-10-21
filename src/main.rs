@@ -51,64 +51,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out = BufWriter::new(File::create(&cli.output)?);
 
     for thread in &profile.threads {
-        let stack_counts = get_stack_counts(thread);
-
-        // We do end up getting a bunch of duplicate lines, so we'll keep track and sum counts
-        let mut stacktrace: HashMap<String, u32> = HashMap::new();
-
-        for (i, &stack_count) in stack_counts.iter().enumerate() {
-            // TODO: will find a significantly more optimized way of traversing this later,
-            // but for now:
-            // - For each stack we know our frame and the stack before this (where that stack might
-            // be multiple frames)
-            // - e.g. A -> B -> C, (A -> B) would be prefix, C would be our frame
-            // - if it was just A prefix would be None
-            // For a flamegraph format perfanno wants we need:
-            // /path/to/src_1.cpp:30;/path/to/src_2.cpp:27;/path/to/src_1.cpp:27 47
-            // from https://github.com/t-troebst/perfanno.nvim README
-
-            // Rough process:
-            // - Get stack sample count from stack table
-            // - Traverse stack table until prefix is None
-            // - While we still have a frame to process:
-            //  - Fetch frame name + addr from frame table
-
-            // For flamegraphs we don't need to care about any stack not called
-            if stack_count == 0 {
-                continue;
-            }
-
-            let mut curr = Some(i);
-
-            let mut callstack_strs: Vec<String> = Vec::new();
-
-            while let Some(idx) = curr {
-                let frame_idx = thread.stack_table.frame[idx];
-
-                callstack_strs.extend(
-                    frame_name_line(
-                        &mut symbol_maps,
-                        &mut frame_cache,
-                        &symbol_manager,
-                        &profile,
-                        thread,
-                        frame_idx,
-                        root,
-                    )
-                    .await,
-                );
-                curr = thread.stack_table.prefix[idx];
-            }
-
-            callstack_strs.reverse();
-
-            let func_key = callstack_strs.join(";");
-            let entry = stacktrace.entry(func_key);
-
-            let count: &mut u32 = entry.or_insert(0);
-
-            *count += stack_count;
-        }
+        let stacktrace = collapse_stack(
+            thread,
+            &profile,
+            &symbol_manager,
+            &mut symbol_maps,
+            &mut frame_cache,
+            root,
+        )
+        .await;
 
         let lines: Vec<_> = stacktrace.into_iter().collect();
 
@@ -118,6 +69,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+async fn collapse_stack(
+    thread: &Thread,
+    profile: &Profile,
+    symbol_manager: &SymbolManager,
+    symbol_maps: &mut HashMap<usize, Option<SymbolMap>>,
+    frame_cache: &mut HashMap<(usize, i64), Vec<String>>,
+    root: &Path,
+) -> HashMap<String, u32> {
+    // We do end up getting a bunch of duplicate lines, so we'll keep track and sum counts
+    let mut stacktrace = HashMap::new();
+    let stack_counts = get_stack_counts(thread);
+
+    for (i, &stack_count) in stack_counts.iter().enumerate() {
+        // TODO: will find a significantly more optimized way of traversing this later,
+        // but for now:
+        // - For each stack we know our frame and the stack before this (where that stack might
+        // be multiple frames)
+        // - e.g. A -> B -> C, (A -> B) would be prefix, C would be our frame
+        // - if it was just A prefix would be None
+        // For a flamegraph format perfanno wants we need:
+        // /path/to/src_1.cpp:30;/path/to/src_2.cpp:27;/path/to/src_1.cpp:27 47
+        // from https://github.com/t-troebst/perfanno.nvim README
+
+        // Rough process:
+        // - Get stack sample count from stack table
+        // - Traverse stack table until prefix is None
+        // - While we still have a frame to process:
+        //  - Fetch frame name + addr from frame table
+
+        // For flamegraphs we don't need to care about any stack not called
+        if stack_count == 0 {
+            continue;
+        }
+
+        let mut callstack_strs = Vec::new();
+        let mut curr = Some(i);
+        while let Some(idx) = curr {
+            let frame_idx = thread.stack_table.frame[idx];
+            callstack_strs.extend(
+                frame_name_line(
+                    symbol_maps,
+                    frame_cache,
+                    symbol_manager,
+                    profile,
+                    thread,
+                    frame_idx,
+                    root,
+                )
+                .await,
+            );
+            curr = thread.stack_table.prefix[idx];
+        }
+        callstack_strs.reverse();
+
+        *stacktrace.entry(callstack_strs.join(";")).or_insert(0) += stack_count;
+    }
+
+    stacktrace
 }
 
 async fn frame_name_line(
