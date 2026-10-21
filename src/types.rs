@@ -31,8 +31,8 @@ pub struct Shared {
 #[serde(rename_all = "camelCase")]
 pub struct Lib {
     pub path: String,
-    pub debug_path: String,
-    pub breakpad_id: String,
+    pub debug_path: Option<String>,
+    pub breakpad_id: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]

@@ -1,8 +1,12 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{Result, anyhow};
 use clap::Parser;
-use wholesym::{SymbolMap, VerboseSymbolManagerObserver};
+use wholesym::{MultiArchDisambiguator, SymbolManager, SymbolMap, VerboseSymbolManagerObserver};
 
 use crate::{
     json_loader::load_firefox_profile,
@@ -33,6 +37,10 @@ struct Args {
 
     #[clap(short, long, value_parser=parse_hex)]
     addr: u32,
+
+    // TODO: have to include path of where samply was ran because of relative paths, might be an
+    // easier way of autodetecting this
+    samply_path: PathBuf,
 }
 
 #[tokio::main]
@@ -43,16 +51,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .use_spotlight(true)
         .respect_nt_symbol_path(true);
 
-    let mut symbol_manager = wholesym::SymbolManager::with_config(config);
+    let symbol_manager = wholesym::SymbolManager::with_config(config);
 
-    // TODO: need to load for all libs not just main executable
-    let path: PathBuf = cli.exe;
+    let root = &cli.samply_path;
 
-    // symbol_manager.set_observer(Some(Arc::new(VerboseSymbolManagerObserver::new())));
-
-    let symbol_map = symbol_manager
-        .load_symbol_map_for_binary_at_path(&path, None)
-        .await?;
+    let mut symbol_maps: HashMap<usize, Option<SymbolMap>> = HashMap::new();
 
     print!("{:#x}: ", cli.addr);
 
@@ -79,103 +82,114 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             //  - Fetch frame name + addr from frame table
             let stack_count = stack_counts[i];
 
-            let mut curr_idx = i;
+            // For flamegraphs we don't need to care about any stack not called
+            if stack_count == 0 {
+                continue;
+            }
+
+            let mut curr = Some(i);
 
             let mut callstack_strs: Vec<String> = Vec::new();
 
-            while let Some(prefix) = thread.stack_table.prefix[curr_idx] {
-                let frame_idx = thread.stack_table.frame[curr_idx];
+            while let Some(idx) = curr {
+                let frame_idx = thread.stack_table.frame[idx];
 
-                match frame_name_line(&symbol_map, thread, frame_idx).await {
-                    Ok((function, line)) => {
-                        if let Some(line) = line {
-                            let dis = function + ":" + &line.to_string();
-                            println!("found {dis} for stack {curr_idx}");
-                            callstack_strs.push(dis);
-                        }
-                    }
-                    Err(_) => {
-                        curr_idx = prefix;
-                        continue;
-                    }
-                }
-
-                curr_idx = prefix;
-            }
-
-            println!("REACHED THE END");
-
-            // last frame
-            let frame_idx = thread.stack_table.frame[curr_idx];
-
-            match frame_name_line(&symbol_map, thread, frame_idx).await {
-                Ok((function, line)) => {
-                    if let Some(line) = line {
-                        let dis = function + ":" + &line.to_string();
-                        println!("found {dis} for stack {curr_idx}");
-                        callstack_strs.push(dis);
-                    }
-                }
-                Err(_) => {}
+                callstack_strs.extend(
+                    frame_name_line(
+                        &mut symbol_maps,
+                        &symbol_manager,
+                        &profile,
+                        thread,
+                        frame_idx,
+                        root
+                    )
+                    .await,
+                );
+                curr = thread.stack_table.prefix[idx];
             }
 
             callstack_strs.reverse();
 
-            println!("completed stack: {:?}", callstack_strs);
+            println!("{} {}", callstack_strs.join(";"), stack_counts[i]);
         }
-
-        println!("stack_counts: {:?}", stack_counts);
-
-        // for (i, address) in thread.frame_table.address.iter().enumerate() {
-        //     // For now we need to filter this to just be our executable. Given a frame at [i] within the frame
-        //     // table, we can reference this via func idx -> func table -> resource table
-        //
-        //     let func_idx = thread.frame_table.func[i];
-        //     let res_idx = thread.func_table.resource[func_idx];
-        //
-        //     if res_idx == -1 {
-        //         continue;
-        //     }
-        //
-        //     if let Some(lib_idx) = thread.resource_table.lib[res_idx as usize].as_ref() {
-        //         let lib = &profile.libs[*lib_idx];
-        //
-        //         if lib.path == "./target/release/one-billion-rows" {
-        //             print_addr(*address, &symbol_map).await;
-        //         }
-        //     }
-        // }
     }
 
     Ok(())
 }
 
 async fn frame_name_line(
-    symbol_map: &SymbolMap,
+    maps: &mut HashMap<usize, Option<SymbolMap>>,
+    manager: &SymbolManager,
+    profile: &Profile,
     thread: &Thread,
     idx: usize,
-) -> Result<(String, Option<u32>)> {
+    root: &Path
+) -> Vec<String> {
+    let mut ret = Vec::new();
+
     let addr = thread.frame_table.address[idx];
+    let func = thread.frame_table.func[idx];
+    let resource = thread.func_table.resource[func];
 
     if addr == -1 {
-        println!("{addr}:-1");
+        return vec!["addr=-1".to_string()];
     }
 
-    let Some(address_info) = symbol_map
+    // if addr == -1 {
+    //     println!("{addr}:-1");
+    // }
+    //
+
+    let Some(lib_idx) = thread.resource_table.lib[resource as usize] else {
+        return vec!["lib_idx None".to_string()];
+    };
+
+    if !maps.contains_key(&lib_idx) {
+        let lib = &profile.libs[lib_idx];
+        let path = root.join(lib.debug_path.as_deref().unwrap_or(&lib.path));
+
+        // Hurrah macOS! Need to do additional disambiguation given breakpads otherwise we fail on
+        // all map indexes, noted in load_symbol_map_for_binary_at_path docs
+        let multiarch_disambiguator = lib.breakpad_id.as_deref().and_then(|id| wholesym::debugid::DebugId::from_breakpad(id).ok()).map(MultiArchDisambiguator::DebugId);
+
+        // let map = manager.load_symbol_map_for_binary_at_path(Path::new(path), None).await.ok();
+        let map = match manager
+            .load_symbol_map_for_binary_at_path(&path, multiarch_disambiguator)
+            .await
+        {
+            Ok(m) => Some(m),
+            Err(e) => {
+                eprintln!("couldn't load symbols for lib {lib_idx} {e}");
+                None
+            }
+        };
+
+        if map.is_none() {
+            eprintln!("bad symbol");
+        }
+
+        maps.insert(lib_idx, map);
+    }
+
+    let Some(map) = maps[&lib_idx].as_ref() else {
+        return vec!["faield map idx".to_string()];
+    };
+    let Some(info) = map
         .lookup(wholesym::LookupAddress::Relative(addr as u32))
         .await
     else {
-        eprintln!("failed to find symbol for {:#x}", addr);
-        return Err(anyhow!("addr invalid"));
+        return vec!["failed addr lookup".to_string()];
     };
 
-    if let Some(frames) = address_info.frames {
+    if let Some(frames) = info.frames {
         for frame in frames {
-            let Some(path) = frame.file_path else {
-                eprintln!(
-                    "Failed to find frame file_path for addr {addr}, do we have debug symbols enabled?"
-                );
-                continue;
+            let sample_function_name = frame.function.unwrap();
+
+            match (frame.file_path, frame.line_number) {
+                (Some(file_path), Some(line)) => {
+                    ret.push(format!("{}:{}", file_path.display_path(), line))
+                }
+                _ => ret.push(sample_function_name),
             };
 
             // let sample_display = match frame.function {
@@ -183,17 +197,23 @@ async fn frame_name_line(
             //     None => path.display_path()
             // };
 
-            return Ok((path.display_path(), frame.line_number));
+            // let Some(path) = frame.file_path else {
+            //     eprintln!(
+            //         "Failed to find frame file_path for addr {addr}, do we have debug symbols enabled?"
+            //     );
+            //     continue;
+            // };
+            //
+
+            // return Ok((path.display_path(), frame.line_number));
         }
-    } else {
-        return Err(anyhow!(
-            "Failed to fetch frames for addr {addr}, do we have debug symbols enabled?"
-        ));
     }
 
-    return Err(anyhow!(
-        "Found no frame with file_path, do we have debug symbols enabled?"
-    ));
+    if ret.len() == 0 {
+        ret.push(info.symbol.name.clone());
+    }
+
+    ret
 }
 
 fn get_stack_counts(thread: &Thread) -> Vec<u32> {
