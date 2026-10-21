@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry},
     path::{Path, PathBuf},
 };
 
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // We do end up getting a bunch of duplicate lines, so we'll keep track and sum counts
         let mut stacktrace: HashMap<String, u32> = HashMap::new();
 
-        for (i, stack) in thread.stack_table.frame.iter().enumerate() {
+        for (i, &stack_count) in stack_counts.iter().enumerate() {
             // TODO: will find a significantly more optimized way of traversing this later,
             // but for now:
             // - For each stack we know our frame and the stack before this (where that stack might
@@ -66,7 +66,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // - Traverse stack table until prefix is None
             // - While we still have a frame to process:
             //  - Fetch frame name + addr from frame table
-            let stack_count = stack_counts[i];
 
             // For flamegraphs we don't need to care about any stack not called
             if stack_count == 0 {
@@ -102,17 +101,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let count: &mut u32 = entry.or_insert(0);
 
-            *count += stack_count as u32;
+            *count += stack_count;
         }
 
-        let mut lines: Vec<_> = stacktrace.into_iter().collect();
+        let lines: Vec<_> = stacktrace.into_iter().collect();
 
         for (stack, count) in lines {
             println!("{stack} {count}");
-
         }
     }
-
 
     Ok(())
 }
@@ -144,7 +141,7 @@ async fn frame_name_line(
         return cached.clone();
     }
 
-    if !maps.contains_key(&lib_idx) {
+    if let Entry::Vacant(slot) = maps.entry(lib_idx) {
         let lib = &profile.libs[lib_idx];
         let path = root.join(lib.debug_path.as_deref().unwrap_or(&lib.path));
 
@@ -156,18 +153,26 @@ async fn frame_name_line(
             .and_then(|id| wholesym::debugid::DebugId::from_breakpad(id).ok())
             .map(MultiArchDisambiguator::DebugId);
 
-        let mut res = manager.load_symbol_map_for_binary_at_path(&path, multiarch_disambiguator).await;
+        let mut res = manager
+            .load_symbol_map_for_binary_at_path(&path, multiarch_disambiguator)
+            .await;
 
         if res.is_err() {
-            res = manager.load_symbol_map_for_binary_at_path(&path, lib.arch.clone().map(MultiArchDisambiguator::Arch)).await;
+            res = manager
+                .load_symbol_map_for_binary_at_path(
+                    &path,
+                    lib.arch.clone().map(MultiArchDisambiguator::Arch),
+                )
+                .await;
         }
 
         if res.is_err() {
-            res = manager.load_symbol_map_for_binary_at_path(&path, None).await;
+            res = manager
+                .load_symbol_map_for_binary_at_path(&path, None)
+                .await;
         }
 
-        let map = match  res 
-        {
+        let map = match res {
             Ok(m) => Some(m),
             Err(e) => {
                 eprintln!("couldn't load symbols for lib {lib_idx} {e}");
@@ -179,17 +184,19 @@ async fn frame_name_line(
             eprintln!("bad symbol");
         }
 
-        maps.insert(lib_idx, map);
+        slot.insert(map);
     }
 
+    let fallback = profile.libs[lib_idx].path.rsplit('/').next().unwrap();
+
     let Some(map) = maps[&lib_idx].as_ref() else {
-        return vec![format!("{}+{addr:#x}", profile.libs[lib_idx].path.rsplit("/").next().unwrap())];
+        return vec![format!("{}+{addr:#x}", fallback)];
     };
     let Some(info) = map
         .lookup(wholesym::LookupAddress::Relative(addr as u32))
         .await
     else {
-        return vec![format!("{}+{addr:#x}", profile.libs[lib_idx].path.rsplit("/").next().unwrap())];
+        return vec![format!("{}+{addr:#x}", fallback)];
     };
 
     if let Some(frames) = info.frames {
@@ -205,7 +212,7 @@ async fn frame_name_line(
         }
     }
 
-    if ret.len() == 0 {
+    if ret.is_empty() {
         ret.push(info.symbol.name.clone());
     }
 
@@ -222,11 +229,8 @@ fn get_stack_counts(thread: &Thread) -> Vec<u32> {
 
     let sample_table = &thread.samples;
 
-    for sample in &sample_table.stack {
-        // Sample can be None if we aren't running anything
-        if let Some(sample) = sample {
-            counters[*sample] += 1;
-        }
+    for sample in sample_table.stack.iter().flatten() {
+        counters[*sample] += 1;
     }
 
     counters

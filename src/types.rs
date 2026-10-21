@@ -18,13 +18,6 @@ use serde::Deserialize;
 pub struct Profile {
     pub libs: Vec<Lib>,
     pub threads: Vec<Thread>,
-    pub shared: Option<Shared>,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Shared {
-    pub string_array: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -59,7 +52,7 @@ pub struct Thread {
     /// - Each stack level de-duplicated, identifies associated frame string, points at the calling stack level
     /// - Identifier for top of the stack is stored along with a timestamp
     pub frame_table: FrameTable,
-    
+
     /// Table containing a list of functions the sampler hit along with their metadata
     pub func_table: FuncTable,
 
@@ -82,16 +75,10 @@ pub struct FrameTable {
 
     /// The index into the func table describing the name and resource of a function
     pub func: Vec<usize>,
-
-    // TODO: I haven't the slightest clue what inline_depth is, but it's part of the schema.
-    // Hope it's not important! :(
-    pub inline_depth: Vec<u32>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct FuncTable {
-    /// Name of a function.
-    pub name: Vec<usize>,
     pub resource: Vec<i64>,
 }
 
@@ -99,10 +86,6 @@ pub struct FuncTable {
 pub struct SampleTable {
     /// For each sample, stack[i] is the optional index into the stack table if a stack exists
     pub stack: Vec<Option<usize>>,
-
-    /// A sample can be weighted for a variety of reasons, e.g. one sample happening longer
-    /// than the typical time quantum, so we can weight it higher
-    pub weight: Option<Vec<f64>>,
 }
 
 #[derive(Deserialize, Debug)]

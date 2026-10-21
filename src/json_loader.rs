@@ -1,5 +1,5 @@
-use std::{io::Read, path::PathBuf};
 use anyhow::Result;
+use std::{io::Read, path::PathBuf};
 
 use crate::types::Profile;
 

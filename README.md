@@ -2,7 +2,7 @@
 
 # samply_perfanno
 
-A personal tool for converting a [samply](https://github.com/mstange/samply) firefox profiler to a [perfanno.nvim](https://github.com/t-troebst/perfanno.nvim) flamegraph compatible format, primarily for rust applications.
+A personal tool for converting a [samply](https://github.com/mstange/samply) Firefox profiler to a [perfanno.nvim](https://github.com/t-troebst/perfanno.nvim) flamegraph compatible format, primarily for rust applications.
 
 This was entirely because
 
@@ -13,7 +13,7 @@ Quick preview of how it looks in Neovim when everything is working:
 
 ![demo image](./demo.jpeg)
 
-Unfortunately this was slightly easier said than done. The firefox profiler schema only contains a series of tables listing the samples/libraries/functions, *not* the symbol mappings required to trace it back to any source code. Under the hood the Firefox Profiler handles this via requesting a Samply server serving any symbol map requests. This is less than ideal, as the flamegraph schema documented [here](https://github.com/brendangregg/FlameGraph) requires all symbols to be computed beforehand.
+Unfortunately this was slightly easier said than done. The Firefox profiler schema only contains a series of tables listing the samples/libraries/functions, *not* the symbol mappings required to trace it back to any source code. Under the hood the Firefox Profiler handles this via requesting a Samply server serving any symbol map requests. This is less than ideal, as the flamegraph schema documented [here](https://github.com/brendangregg/FlameGraph) requires all symbols to be computed beforehand.
 
 This little application effectively replaces the job of the Samply server by walking the sample stacks, doing symbolification, sample counting etc. and dumping it into a flamegraph-compatible format
 
@@ -23,15 +23,13 @@ This little application effectively replaces the job of the Samply server by wal
 Use samply to record as normal. If using this as part of a keybind I recommend disabling the auto-firefox open via `--save-only`:
 
 ```
-
 samply record ./some-binary
-
 ```
 
-```
+Then run the converter tool:
 
+```
 cargo run <path/to/samply/profile.json.gz> <path/to/directory/samply/ran/in>
-
 ```
 
 For now, this dumps the result into stdout (until I decide to actually add output flags). You can easily pipe this into the `perf.log` file `perfanno` expects:
@@ -45,7 +43,6 @@ With a `perf.log` within the root project directory of your chosen project, you 
 
 ```
 :PerfLoadFlameGraph
-
 ```
 
 ---
