@@ -113,8 +113,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let count: &mut u32 = entry.or_insert(0);
 
             *count += stack_count as u32;
-            //
-            // println!("{} {}", callstack_strs.join(";"), stack_counts[i]);
         }
 
         let mut lines: Vec<_> = stacktrace.into_iter().collect();
@@ -164,9 +162,17 @@ async fn frame_name_line(
             .map(MultiArchDisambiguator::DebugId);
 
         // let map = manager.load_symbol_map_for_binary_at_path(Path::new(path), None).await.ok();
-        let map = match manager
-            .load_symbol_map_for_binary_at_path(&path, multiarch_disambiguator)
-            .await
+        let mut res = manager.load_symbol_map_for_binary_at_path(&path, multiarch_disambiguator).await;
+
+        if res.is_err() {
+            res = manager.load_symbol_map_for_binary_at_path(&path, lib.arch.clone().map(MultiArchDisambiguator::Arch)).await;
+        }
+
+        if res.is_err() {
+            res = manager.load_symbol_map_for_binary_at_path(&path, None).await;
+        }
+
+        let map = match  res 
         {
             Ok(m) => Some(m),
             Err(e) => {
@@ -183,13 +189,13 @@ async fn frame_name_line(
     }
 
     let Some(map) = maps[&lib_idx].as_ref() else {
-        return vec!["faield map idx".to_string()];
+        return vec![format!("{}+{addr:#x}", profile.libs[lib_idx].path.rsplit("/").next().unwrap())];
     };
     let Some(info) = map
         .lookup(wholesym::LookupAddress::Relative(addr as u32))
         .await
     else {
-        return vec!["failed addr lookup".to_string()];
+        return vec![format!("{}+{addr:#x}", profile.libs[lib_idx].path.rsplit("/").next().unwrap())];
     };
 
     if let Some(frames) = info.frames {

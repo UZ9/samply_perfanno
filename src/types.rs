@@ -33,6 +33,7 @@ pub struct Lib {
     pub path: String,
     pub debug_path: Option<String>,
     pub breakpad_id: Option<String>,
+    pub arch: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
