@@ -7,7 +7,8 @@ A personal tool for converting a [samply](https://github.com/mstange/samply) Fir
 This was entirely because
 
 - Samply was the least painful profiler on macOS
-- I wanted pretty perf annotations inside Neovim buffers
+- I wanted pretty perf annotations inside Neovim buffers via perfanno
+- Perfanno does not support the firefox profiler schema
 
 Quick preview of how it looks in Neovim when everything is working:
 
