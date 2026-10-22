@@ -2,7 +2,7 @@
 
 # samply_perfanno
 
-A personal tool for converting a [samply](https://github.com/mstange/samply) Firefox profiler to a [perfanno.nvim](https://github.com/t-troebst/perfanno.nvim) flamegraph compatible format, primarily for rust applications.
+A personal tool for converting a [samply](https://github.com/mstange/samply) Firefox profiler schema to a [perfanno.nvim](https://github.com/t-troebst/perfanno.nvim) flamegraph schema, primarily for profiling Rust applications.
 
 This was entirely because
 
